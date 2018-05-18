@@ -1,33 +1,49 @@
 clear all; clc
 
+%% Generate basic continuous-time model
 I = eye(2,2);
+Z = zeros(2,2);
 
-A = [0*I I 0*I;
-     0*I 0*I I;
-     0*I 0*I 0*I];
- 
- B_u = [0*I;
-      0*I;
-      I];
+A = [Z I Z;
+    Z Z I;
+    Z Z Z];
 
- B_d = B_u *0;
- 
- C = [I 0*I -I;
-     I 0*I 0*I;
-     0*I I 0*I];
- 
- 
- D_u = [0*I; 0*I; 0*I];
- D_d = [I; 0*I; 0*I];
- 
- B = [B_u B_d];
- D = [D_u D_d];
- 
- 
- p_ct = ss(A,B_u,C,[]);
- p_ct_d = ss(A,B,C,D);
- 
- Ts = 0.2;
- 
- p_dt = c2d(p_ct, Ts);
- p_dt_d = c2d(p_ct_d, Ts);
+B_u = [Z;
+    Z;
+    I];
+
+B_d = B_u *0;
+
+C = [I Z -I;
+    I Z  Z];
+
+
+D_u = [Z; Z];
+D_d = [I; Z];
+
+B = [B_u B_d];
+D = [D_u D_d];
+
+
+p_ct = ss(A,B_u,C,[]);
+p_ct_d = ss(A,B,C,D);
+
+%% Discretize model
+
+Ts = 0.2;
+
+p_dt = c2d(p_ct, Ts);
+p_dt_d = c2d(p_ct_d, Ts);
+
+
+%% Generate extended model with delayed output disturbance
+[Adt, Bdt, Cdt, Ddt] = ssdata(p_dt_d);
+
+Adt(8,8) = 0;
+Bdt(7:8,3:4) = I;
+Cdt(1:2, 7:8) = I;
+
+p_ext = ss(Adt, Bdt, Cdt, [], Ts);
+
+
+
