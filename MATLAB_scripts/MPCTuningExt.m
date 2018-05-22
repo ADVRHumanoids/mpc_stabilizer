@@ -35,4 +35,4 @@ options.MDLookAhead = 'off';
 options.Constraints = 'on';
 options.OpenLoop = 'off';
 %% run simulation
-sim(mpc1, 101, mpc1_RefSignal_1, mpc1_MDSignal_1, options);
+sim(mpc1, 101, mpc1_RefSignal_1, [], options);
