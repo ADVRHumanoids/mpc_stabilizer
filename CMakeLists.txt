@@ -24,11 +24,14 @@ else()
     message(FATAL_ERROR "The compiler ${CMAKE_CXX_COMPILER} has no C++11 support. Please use a different C++ compiler.")
 endif()
 
-
+add_library(MpcStabilizer src/MpcStabilizer.cpp)
+target_link_libraries(MpcStabilizer ${XBotInterface_LIBRARIES} ${OpenMpC_LIBRARIES}
+        $ENV{ROBOTOLOGY_ROOT}/build/install/lib/libmpcmoveMEX.so
+        )
 
 add_executable(test_mpc src/mpc_test.cpp)
 
 target_link_libraries(test_mpc ${XBotInterface_LIBRARIES} ${OpenMpC_LIBRARIES}
-	    /home/francesco/advr-superbuild/build/install/lib/libmpcmoveMEX.so
+	    $ENV{ROBOTOLOGY_ROOT}/build/install/lib/libmpcmoveMEX.so
 	    )
 
