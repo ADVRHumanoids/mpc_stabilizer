@@ -1,24 +1,21 @@
-#include "rt_nonfinite.h"
-#include "mpcmoveCodeGeneration.h"
-#include "mpcmoveCodeGeneration_terminate.h"
-#include "mpcmoveCodeGeneration_initialize.h"
-#include <XBotInterface/Logger.hpp>
 
+#include <XBotInterface/Logger.hpp>
+#include <MpcController.h>
 #include <OpenMpC/dynamics/LtiDynamics.h>
 
+#include <MpcController.h>
 
 int main(int argc, char ** argv){
   
-    rt_InitInfAndNaN(8U); // needed for unknown reason
-
-    
     auto logger = XBot::MatLogger::getLogger("/tmp/mpc_test_log");
     
     auto plant = OpenMpC::dynamics::LtiDynamics::Integrator(3, 2);
     Eigen::Matrix2d eye; eye.setIdentity();
     Eigen::MatrixXd C(4,6);
+    const double h = 0.9, g = 9.8;
     
-    C << eye, eye*0.0, -eye,
+    
+    C << eye, eye*0.0, -eye*h/g,
          eye, eye*0.0, eye*0.0;
          
     plant->addOutput("y", C);
@@ -27,64 +24,48 @@ int main(int argc, char ** argv){
     x.setZero(x.size());
     
     
-    int N_ITER = 1000;
+    int N_ITER = 10000;
+
+    MpcControllerModelClass mpc;
+    mpc.initialize();
     
-    struct1_T mpcmovestate;
-    memset(&mpcmovestate, 0, sizeof(mpcmovestate));
-    
-    
-    double ts = 0.2;
+    const double ts = 0.001;
     
     for(int i = 0; i < N_ITER; i++)
     {
-     
         
-        struct2_T r0; // measurements and references
-        double u[2];  // control input
-        struct7_T Info;
-
-        /* Fill measurements and references */
-        r0.signals.ref[0] = 0.7;
-        r0.signals.ref[1] = 0.0;
-        r0.signals.ref[2] = 0.0;
-        r0.signals.ref[3] = 0.0;
+        Eigen::Map<Eigen::Vector4d> ref(mpc.MpcController_U.ref);
+        Eigen::Map<Eigen::Vector2d> umax(mpc.MpcController_U.umax);
+        Eigen::Map<Eigen::Vector2d> umin(mpc.MpcController_U.umin);
+        Eigen::Map<Eigen::Vector4d> ymax(mpc.MpcController_U.ymax);
+        Eigen::Map<Eigen::Vector4d> ymin(mpc.MpcController_U.ymin);
+        Eigen::Map<Eigen::Vector4d> ymeas(mpc.MpcController_U.ymeas);
         
-        Eigen::VectorXd y_value;
-        plant->getOutputValue("y", x, y_value); // same as C*x
+        Eigen::Map<Eigen::Vector2d> mv(mpc.MpcController_Y.mv);
+        Eigen::Map<Eigen::Vector2d> dist(mpc.MpcController_Y.dist);
+        Eigen::Map<Eigen::VectorXd> x_est(mpc.MpcController_Y.x_est, 8);
         
-        if(i > 500)
+        ref << 0.5, 0.0, 0.0, 0.0;
+        umax.setConstant(1e10);
+        umin = -umax;
+        ymax << 1.5, 1.5, 1e10, 1e10;
+        ymin = -ymax;
+        ymeas = C*x;
+        
+        if(i > 3000)
         {
-            y_value[0] += 1.0;
-//             mpcmovestate.Disturbance[0] = 1.0;
-            
+            ymeas[0] += 1.0;
         }
         
-        r0.signals.ym[0] = y_value[0];
-        r0.signals.ym[1] = y_value[1];
-        r0.signals.ym[2] = y_value[2];
-        r0.signals.ym[3] = y_value[3];
-        
-        
-        
-        
-        /* Solver MPC problem */
-        mpcmoveCodeGeneration(&mpcmovestate, &r0, u, &Info);
-        
-        
-        /* Apply control input */
-        Eigen::Map<Eigen::Vector2d> u_eigen(u);
-        
-        plant->integrate(x, u_eigen, ts, x);
+        mpc.step();
 
-        logger->add("y", y_value);
-        logger->add("u", u_eigen);
+        plant->integrate(x, mv, ts, x);
+
+        logger->add("y", ymeas);
+        logger->add("u", mv);
         logger->add("x", x);
-        
-        Eigen::Map<Eigen::VectorXd> x_est(mpcmovestate.Plant, 8);
         logger->add("x_est", x_est);
-        
-        Eigen::Map<Eigen::VectorXd> dist_est(mpcmovestate.Disturbance, 2);
-        logger->add("dist_est", dist_est);
+        logger->add("dist_est", dist);
     }
     
     logger->flush();

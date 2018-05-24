@@ -1,11 +1,13 @@
 #include <mpc_stabilizer/MpcStabilizer.h>
+#include <MpcController.h>
+
 
 mpcs::MpcStabilizer::MpcStabilizer(XBot::ModelInterface::ConstPtr model):
     _model(model),
     _cop_ref(0.0, 0.0),
+    _mpc(new MpcControllerModelClass),
     _logger(XBot::MatLogger::getLogger("/tmp/mpc_stabilizer_log"))
 {
-    rt_InitInfAndNaN(8U); // needed for unknown reason
     
     _plant = OpenMpC::dynamics::LtiDynamics::Integrator(3, 2);
     
@@ -16,55 +18,63 @@ mpcs::MpcStabilizer::MpcStabilizer(XBot::ModelInterface::ConstPtr model):
          eye, eye*0.0, eye*0.0;
          
     _plant->addOutput("y", C);
-    
-    memset(&_mpcmovestate, 0, sizeof(_mpcmovestate));
+
+    _mpc->initialize();
     
     _left_ft  = _model->chain("left_leg") .getForceTorque().begin()->second;
     _right_ft = _model->chain("right_leg").getForceTorque().begin()->second;
 
 }
 
-bool mpcs::MpcStabilizer::computeMPC(Eigen::Vector2d& com_jerk)
+bool mpcs::MpcStabilizer::computeMPC(double period, Eigen::Vector2d& com_pos, Eigen::Vector2d& com_vel)
 {
     
     /* Get measurements from model */
-    Eigen::Vector3d com_pos;
-    _model->getCOM(com_pos);
-
-    struct2_T r0; // measurements and references
-    double u[2];  // control input
-    struct7_T Info;
+    Eigen::Vector3d com_pos_meas;
+    _model->getCOM(com_pos_meas);
 
     /* Fill measurements and references */
     Eigen::Vector2d cop_meas = compute_cop();
+
+    /* Get Eigen interfaces to matlab arrays */
+    Eigen::Map<Eigen::Vector4d> ref(_mpc->MpcController_U.ref);
+    Eigen::Map<Eigen::Vector2d> umax(_mpc->MpcController_U.umax);
+    Eigen::Map<Eigen::Vector2d> umin(_mpc->MpcController_U.umin);
+    Eigen::Map<Eigen::Vector4d> ymax(_mpc->MpcController_U.ymax);
+    Eigen::Map<Eigen::Vector4d> ymin(_mpc->MpcController_U.ymin);
+    Eigen::Map<Eigen::Vector4d> ymeas(_mpc->MpcController_U.ymeas);
     
-    r0.signals.ym[0] = cop_meas.x();
-    r0.signals.ym[1] = cop_meas.y();
-    r0.signals.ym[2] = com_pos.x();
-    r0.signals.ym[3] = com_pos.y();
-        
-    r0.signals.ref[0] = _cop_ref.x();
-    r0.signals.ref[1] = _cop_ref.y();
-    r0.signals.ref[2] = 0.0;
-    r0.signals.ref[3] = 0.0;
+    Eigen::Map<Eigen::Vector2d> mv(_mpc->MpcController_Y.mv);
+    Eigen::Map<Eigen::Vector2d> dist(_mpc->MpcController_Y.dist);
+    Eigen::Map<Eigen::VectorXd> x_est(_mpc->MpcController_Y.x_est, 8);
     
-    /* Solver MPC problem */
-    mpcmoveCodeGeneration(&_mpcmovestate, &r0, u, &Info);
+    ref << _cop_ref, 0.0, 0.0;
+    umax.setConstant(1e10);
+    umin = -umax;
+    ymax << 1.5, 1.5, 1e10, 1e10;
+    ymin = -ymax;
+    ymeas << cop_meas, com_pos_meas.head<2>();
     
-    /* Apply control input */
-    Eigen::Map<Eigen::Vector2d> u_eigen(u);
-    com_jerk = u_eigen;
+
+    _mpc->step();
+
+    Eigen::VectorXd new_state = x_est;
+    _plant->integrate(x_est, mv, period, new_state);
     
+    com_pos = new_state.head<2>();
+    com_vel = new_state.segment<2>(2);
+    
+
+    _logger->add("y", ymeas);
+    _logger->add("u", mv);
+    _logger->add("x_est", x_est);
+    _logger->add("dist_est", dist);
 
     _logger->add("ycop", cop_meas);
     _logger->add("ycom", com_pos);
-    _logger->add("u", u_eigen);
     
-    Eigen::Map<Eigen::VectorXd> x_est(_mpcmovestate.Plant, 8);
-    _logger->add("x_est", x_est);
+    std::cout << cop_meas.transpose() << std::endl;
     
-    Eigen::Map<Eigen::VectorXd> dist_est(_mpcmovestate.Disturbance, 2);
-    _logger->add("dist_est", dist_est);
 
 }
 
@@ -79,7 +89,7 @@ Eigen::Vector2d mpcs::MpcStabilizer::compute_local_cop(XBot::ForceTorqueSensor::
     ft->getForce(f);
     ft->getTorque(tau);
     
-    Eigen::Vector2d l_cop = w_T_ft.translation().head<2>() + Eigen::Vector2d(tau.y(), -tau.x())/f.z();
+    Eigen::Vector2d l_cop = w_T_ft.translation().head<2>() + Eigen::Vector2d(-tau.y(), tau.x())/f.z();
     
     return l_cop;
     
@@ -98,7 +108,24 @@ Eigen::Vector2d mpcs::MpcStabilizer::compute_cop()
 }
 
 
+void mpcs::MpcStabilizer::resetCopReference()
+{
+    Eigen::Affine3d l_sole, r_sole;
+    _model->getPose("l_sole", l_sole);
+    _model->getPose("r_sole", r_sole);
+    
+    _cop_ref = 0.5*(l_sole.translation() + r_sole.translation()).head<2>();
+    
+    std::cout << "Left foot pos: " << l_sole.translation().transpose() << std::endl;
+    std::cout << "Right foot pos: " << r_sole.translation().transpose() << std::endl;
+    std::cout << "Resetting cop reference to: " << _cop_ref.transpose() << std::endl;
+}
 
+
+mpcs::MpcStabilizer::~MpcStabilizer()
+{
+    _logger->flush();
+}
 
 
 

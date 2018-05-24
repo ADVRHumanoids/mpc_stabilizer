@@ -1,8 +1,0 @@
-DLL {
-	global:
-		mpcmoveCodeGeneration;
-		mpcmoveCodeGeneration_initialize;
-		mpcmoveCodeGeneration_terminate;
-	local:
-		*;
-};

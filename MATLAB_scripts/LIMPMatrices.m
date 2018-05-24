@@ -3,6 +3,9 @@ clear all; clc
 %% Generate basic continuous-time model
 I = eye(2,2);
 Z = zeros(2,2);
+h = 0.9;
+g = 9.8;
+omega = sqrt(g/h);
 
 A = [Z I Z;
     Z Z I;
@@ -14,7 +17,7 @@ B_u = [Z;
 
 B_d = B_u *0;
 
-C = [I Z -I;
+C = [I Z -I/omega^2;
     I Z  Z];
 
 
@@ -30,7 +33,7 @@ p_ct_d = ss(A,B,C,D);
 
 %% Discretize model
 
-Ts = 0.2;
+Ts = 0.05;
 
 p_dt = c2d(p_ct, Ts);
 p_dt_d = c2d(p_ct_d, Ts);
