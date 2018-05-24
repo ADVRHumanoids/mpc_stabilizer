@@ -66,14 +66,20 @@ bool mpcs::MpcStabilizer::computeMPC(double period, Eigen::Vector2d& com_pos, Ei
     
 
     _logger->add("y", ymeas);
+    _logger->add("cop_ref", _cop_ref);
     _logger->add("u", mv);
     _logger->add("x_est", x_est);
     _logger->add("dist_est", dist);
 
     _logger->add("ycop", cop_meas);
-    _logger->add("ycom", com_pos);
+    _logger->add("ycom", com_pos_meas);
     
-    std::cout << cop_meas.transpose() << std::endl;
+    Eigen::Vector6d wrench;
+    _left_ft->getWrench(wrench);
+    _logger->add("l_wrench", wrench);
+    _right_ft->getWrench(wrench);
+    _logger->add("r_wrench", wrench);
+    
     
 
 }
